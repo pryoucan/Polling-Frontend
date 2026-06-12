@@ -1,10 +1,16 @@
 import { getPid } from '../api.js';
+import { Icon } from './Icon.jsx';
 
 export function Leaderboard({ board, you }) {
   const myPid = getPid();
   return (
     <aside className="board">
-      <h2>Leaderboard</h2>
+      <h2>
+        <span className="board-trophy">
+          <Icon name="trophy" size={16} />
+        </span>
+        Leaderboard
+      </h2>
       <ol className="board-list">
         {(!board || board.length === 0) && <li className="board-empty">No scores yet.</li>}
         {board?.map((row) => (

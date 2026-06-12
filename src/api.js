@@ -17,8 +17,23 @@ function authHeaders(extra = {}) {
 async function req(path, opts = {}) {
   const res = await fetch(`${API_BASE}${path}`, opts);
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error || res.statusText);
+  if (!res.ok) {
+    // Preserve the HTTP status and any machine-readable `code` (e.g. 'REJOIN')
+    // so callers can react, not just show the message.
+    const err = new Error(body.error || res.statusText);
+    err.status = res.status;
+    err.code = body.code;
+    throw err;
+  }
   return body;
+}
+
+// Forget the stored identity so the app falls back to the Join screen. Called
+// when the server reports the session's participant no longer exists.
+export function clearSession() {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(NAME_KEY);
+  localStorage.removeItem(PID_KEY);
 }
 
 // Anonymous join — stores the returned token for subsequent authed calls.
@@ -75,6 +90,7 @@ export const adminStart = () => adminReq('/start', { method: 'POST' });
 export const adminStop = () => adminReq('/stop', { method: 'POST' });
 export const adminPause = () => adminReq('/pause', { method: 'POST' });
 export const adminResume = () => adminReq('/resume', { method: 'POST' });
+export const adminNext = () => adminReq('/next', { method: 'POST' });
 export const adminReset = () => adminReq('/reset', { method: 'POST' });
 export const adminReseed = (count) =>
   adminReq('/reseed', { method: 'POST', body: JSON.stringify({ count }) });

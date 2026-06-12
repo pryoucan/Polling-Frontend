@@ -68,11 +68,23 @@ export function VotingScreen({ state, skewRef, alreadyVoted, responses, onVote, 
         {q.options.map((o) => {
           const sel = selection.includes(o.id);
           const atMax = !sel && selection.length >= q.maxSelect;
+          const disabled = locked || atMax;
           return (
             <div
               key={o.id}
-              className={`option ${sel ? 'sel' : ''} ${locked || atMax ? 'disabled' : ''}`.trim()}
+              className={`option ${sel ? 'sel' : ''} ${disabled ? 'disabled' : ''}`.trim()}
+              role="checkbox"
+              aria-checked={sel}
+              aria-disabled={disabled}
+              aria-label={o.label}
+              tabIndex={locked ? -1 : 0}
               onClick={() => toggle(o.id)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  toggle(o.id);
+                }
+              }}
             >
               <span className="box" />
               <span className="lbl">{o.label}</span>

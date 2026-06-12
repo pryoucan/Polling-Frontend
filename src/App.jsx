@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSse } from './useSse.js';
-import { join, vote, fetchState, fetchLeaderboard, getName } from './api.js';
+import { join, vote, fetchState, fetchLeaderboard, getName, clearSession } from './api.js';
 import { Leaderboard } from './components/Leaderboard.jsx';
 import { VotingScreen } from './components/VotingScreen.jsx';
 import { ResultsScreen } from './components/ResultsScreen.jsx';
-import { BigCountdown } from './components/Timer.jsx';
+import { Icon } from './components/Icon.jsx';
 import Admin from './Admin.jsx';
 
 export default function App() {
@@ -66,8 +66,20 @@ function PollApp() {
   }
 
   async function handleVote(questionId, optionIds) {
-    await vote(questionId, optionIds);
-    setYouVoted(true);
+    try {
+      await vote(questionId, optionIds);
+      setYouVoted(true);
+    } catch (e) {
+      // The server says this token's participant no longer exists (e.g. the DB
+      // was reset). Drop the stale identity and send them back to Join.
+      if (e.code === 'REJOIN') {
+        clearSession();
+        setName(null);
+        notify('Session expired — please re-enter your name');
+        return;
+      }
+      throw e;
+    }
   }
 
   const responses =
@@ -116,7 +128,7 @@ function Stage({ state, result, skewRef, youVoted, responses, onVote, notify }) 
   if (!state) return <Pending />;
   switch (state.phase) {
     case 'lobby':
-      return <Lobby state={state} skewRef={skewRef} />;
+      return <Lobby state={state} />;
     case 'voting':
       return (
         <VotingScreen
@@ -137,7 +149,7 @@ function Stage({ state, result, skewRef, youVoted, responses, onVote, notify }) 
           : state.tally
             ? { questionId: state.question?.id, tally: state.tally, winners: state.winners || [] }
             : null;
-      return <ResultsScreen state={state} result={r} skewRef={skewRef} />;
+      return <ResultsScreen state={state} result={r} />;
     }
     case 'complete':
       return <Complete state={state} />;
@@ -164,10 +176,12 @@ function Join({ onJoin, notify }) {
 
   return (
     <div className="card join">
-      <div className="badge">Join the poll</div>
+      <div className="badge">
+        <Icon name="users" size={13} /> Join the poll
+      </div>
       <h1>Pick your favourites</h1>
       <p>
-        Enter a display name to play. Each question runs on a timer — pick the popular answers to
+        Enter a display name to play. Each question runs on a timer, pick the popular answers to
         score points.
       </p>
       <input
@@ -180,7 +194,9 @@ function Join({ onJoin, notify }) {
         autoFocus
       />
       <button className="btn full" disabled={busy} onClick={go}>
+        {busy ? <span className="spinner" /> : null}
         {busy ? 'Joining…' : 'Enter'}
+        {!busy && <Icon name="arrowRight" />}
       </button>
     </div>
   );
@@ -189,27 +205,27 @@ function Join({ onJoin, notify }) {
 function Pending() {
   return (
     <div className="card center">
-      <div className="badge">Standby</div>
-      <div className="big-timer">—</div>
+      <div className="badge">
+        <span className="pulse-dot" /> Standby
+      </div>
+      <div className="waiting-icon">
+        <Icon name="clock" size={44} />
+      </div>
       <div className="waiting-sub">Waiting for the host to start the poll…</div>
     </div>
   );
 }
 
-function Lobby({ state, skewRef }) {
+function Lobby({ state }) {
   return (
     <div className="card center">
-      <div className="badge">Welcome</div>
-      <div className="big-timer">
-        <BigCountdown
-          closesAt={state.closesAt}
-          skewRef={skewRef}
-          paused={state.paused}
-          pausedRemainingMs={state.pausedRemainingMs}
-        />
+      <div className="badge">
+        <span className="pulse-dot" /> Get ready
       </div>
+      <div className="big-timer">{state.total ?? '—'}</div>
       <div className="waiting-sub">
-        {state.paused ? 'Paused by host' : 'The first question is about to begin'}
+        {state.total ? `${state.total} questions queued · ` : ''}
+        waiting for the host to begin…
       </div>
     </div>
   );
@@ -219,8 +235,13 @@ function Complete({ state }) {
   const top = state.leaderboard?.[0];
   return (
     <div className="card center">
-      <div className="badge good">Poll complete</div>
-      <h1 style={{ marginTop: 14 }}>{top ? `🏆 ${top.name} wins!` : 'Thanks for playing!'}</h1>
+      <div className="badge good">
+        <Icon name="check" size={13} /> Poll complete
+      </div>
+      <div className="trophy">
+        <Icon name="trophy" size={48} />
+      </div>
+      <h1 style={{ marginTop: 4 }}>{top ? `${top.name} wins!` : 'Thanks for playing!'}</h1>
       {top && <div className="waiting-sub">{top.points} points</div>}
       <p className="hint" style={{ marginTop: 10 }}>
         Full standings are on the leaderboard.

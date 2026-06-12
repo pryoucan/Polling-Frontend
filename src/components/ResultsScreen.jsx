@@ -1,10 +1,9 @@
-import { BigCountdown } from './Timer.jsx';
-
 const MEDALS = ['🥇', '🥈', '🥉'];
 
 // Shows the frozen tally for the just-closed question. `result` is the last
-// 'result' SSE message; `state` is the current 'results'-phase state.
-export function ResultsScreen({ state, result, skewRef }) {
+// 'result' SSE message; `state` is the current 'results'-phase state. The phase
+// is held until the host advances — there is no countdown.
+export function ResultsScreen({ state, result }) {
   const q = state.question || {};
 
   // If the result message hasn't arrived yet, show a brief scoring placeholder.
@@ -25,16 +24,10 @@ export function ResultsScreen({ state, result, skewRef }) {
     <div className="card">
       <div className="eyebrow">Results · Question {(q.index ?? 0) + 1}</div>
       <div className="qprompt">{q.prompt || 'Results'}</div>
-      <p className="hint">Top answers are highlighted. Next question starts shortly.</p>
+      <p className="hint">Top answers are highlighted.</p>
 
       <div className="badge" style={{ marginBottom: 14 }}>
-        Next question in{' '}
-        <BigCountdown
-          closesAt={state.closesAt}
-          skewRef={skewRef}
-          paused={state.paused}
-          pausedRemainingMs={state.pausedRemainingMs}
-        />
+        Waiting for the host to continue…
       </div>
 
       <div className="options">

@@ -29,18 +29,33 @@ export function VotingScreen({ state, skewRef, alreadyVoted, responses, onVote, 
     });
   }
 
-  async function submit() {
-    if (selection.length < q.minSelect) return;
+  async function submit(auto = false) {
+    if (selection.length < q.minSelect || selection.length > q.maxSelect) return;
     setSubmitting(true);
     try {
       await onVote(q.id, selection);
       setSubmitted(true);
-      notify('Vote recorded ✓');
+      notify(auto ? 'Time up — your answer was auto-submitted ✓' : 'Vote recorded ✓');
     } catch (e) {
       setSubmitting(false);
       notify(e.message);
     }
   }
+
+  // Auto-submit at the deadline: if the user has a complete, valid selection but
+  // hasn't pressed Submit, send it for them right as time runs out — it lands
+  // inside the server's grace window so it still counts. A partial selection is
+  // NOT auto-submitted (the server requires the exact count). Re-arms on every
+  // selection change and on pause/resume (deadline shifts), so it always targets
+  // the current closesAt with the latest picks.
+  useEffect(() => {
+    if (locked || paused || submitting) return undefined;
+    if (selection.length < q.minSelect || selection.length > q.maxSelect) return undefined;
+    const serverNow = Date.now() - (skewRef?.current || 0);
+    const ms = Math.max(0, state.closesAt - serverNow);
+    const t = setTimeout(() => submit(true), ms);
+    return () => clearTimeout(t);
+  }, [state.closesAt, paused, locked, submitting, selection, q.minSelect, q.maxSelect]);
 
   const canSubmit =
     !locked && !submitting && selection.length >= q.minSelect && selection.length <= q.maxSelect;
@@ -52,7 +67,10 @@ export function VotingScreen({ state, skewRef, alreadyVoted, responses, onVote, 
       </div>
       <div className="qprompt">{q.prompt}</div>
       <p className="hint">
-        Select {q.minSelect}–{q.maxSelect} options. The most-voted answers win points.
+        {q.minSelect === q.maxSelect
+          ? `Select exactly ${q.maxSelect} option${q.maxSelect === 1 ? '' : 's'}.`
+          : `Select ${q.minSelect}–${q.maxSelect} options.`}{' '}
+        The most-voted answers win points.
       </p>
 
       <Timer
@@ -103,7 +121,7 @@ export function VotingScreen({ state, skewRef, alreadyVoted, responses, onVote, 
             Selected <b>{selection.length}</b> / {q.maxSelect}
           </span>
         )}
-        <button className="btn" disabled={!canSubmit} onClick={submit}>
+        <button className="btn" disabled={!canSubmit} onClick={() => submit()}>
           {paused ? 'Paused' : submitted || alreadyVoted ? 'Submitted' : submitting ? 'Submitting…' : 'Submit'}
         </button>
       </div>

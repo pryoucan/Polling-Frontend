@@ -20,9 +20,31 @@ export function ResultsScreen({ state, result }) {
   const winnerIds = new Set(result.winners.map((w) => w.optionId));
   const maxVotes = Math.max(1, ...result.tally.map((t) => t.votes));
 
+  // At the end of a 10-question block, surface the round's top 3 for the prize moment.
+  const segWinners = state.segmentEnd ? state.segmentLeaderboard || [] : [];
+
   return (
-    <div className="card">
-      <div className="eyebrow">Results · Question {(q.index ?? 0) + 1}</div>
+    <>
+      {segWinners.length > 0 && (
+        <div className="card center">
+          <div className="badge good" style={{ marginBottom: 10 }}>
+            🏆 Round {(state.segment?.index ?? 0) + 1} complete · Q{(state.segment?.from ?? 0) + 1}–
+            {(state.segment?.to ?? 0) + 1}
+          </div>
+          <h2 style={{ margin: '2px 0 10px' }}>Round winners</h2>
+          <ol className="board-list" style={{ maxWidth: 440, margin: '0 auto' }}>
+            {segWinners.slice(0, 3).map((r, i) => (
+              <li key={r.id} className={i === 0 ? 'r1' : ''}>
+                <span className="pos">{MEDALS[i]}</span>
+                <span className="nm">{r.name}</span>
+                <span className="pts">{r.points}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+      <div className="card">
+        <div className="eyebrow">Results · Question {(q.index ?? 0) + 1}</div>
       <div className="qprompt">{q.prompt || 'Results'}</div>
       <p className="hint">Top answers are highlighted.</p>
 
@@ -42,7 +64,8 @@ export function ResultsScreen({ state, result }) {
             </div>
           );
         })}
+        </div>
       </div>
-    </div>
+    </>
   );
 }

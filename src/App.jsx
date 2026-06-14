@@ -21,6 +21,7 @@ function PollApp() {
   const [you, setYou] = useState(null);
   const [youVoted, setYouVoted] = useState(false);
   const [board, setBoard] = useState([]);
+  const [segment, setSegment] = useState(null); // { index, size, from, to, leaderboard } — current 10-Q round
   const [toast, setToast] = useState('');
   const toastTimer = useRef(null);
 
@@ -34,16 +35,28 @@ function PollApp() {
   // broadcast during the voting phase).
   useEffect(() => {
     fetchLeaderboard(20)
-      .then((r) => r.leaderboard?.length && setBoard(r.leaderboard))
+      .then((r) => {
+        if (r.leaderboard?.length) setBoard(r.leaderboard);
+        if (r.segment) setSegment(r.segment);
+      })
       .catch(() => {});
   }, []);
 
-  // Keep the leaderboard fresh from whichever source last carried it.
+  // Keep both leaderboards fresh from whichever source last carried them.
   useEffect(() => {
     if (result?.leaderboard) setBoard(result.leaderboard);
+    if (result?.segment) setSegment({ ...result.segment, leaderboard: result.segmentLeaderboard || [] });
   }, [result]);
   useEffect(() => {
     if (state?.leaderboard) setBoard(state.leaderboard);
+    else if (state?.phase === 'lobby') setBoard([]); // fresh run — Start just cleared all scores
+    // Only show the round panel during an active round (voting/results). Clear it
+    // in lobby/idle/complete so a stale round doesn't linger after Stop or between runs.
+    if (state?.segment && (state.phase === 'voting' || state.phase === 'results')) {
+      setSegment({ ...state.segment, leaderboard: state.segmentLeaderboard || [] });
+    } else if (state && state.phase !== 'voting' && state.phase !== 'results') {
+      setSegment(null);
+    }
   }, [state]);
 
   // Per-user info (you / youVoted) isn't in the broadcast — fetch it on phase
@@ -60,8 +73,8 @@ function PollApp() {
       .catch(() => {});
   }, [phase, qId, name]);
 
-  async function handleJoin(n) {
-    const r = await join(n);
+  async function handleJoin(n, phone) {
+    const r = await join(n, phone);
     setName(r.name);
   }
 
@@ -116,7 +129,7 @@ function PollApp() {
           )}
         </section>
 
-        <Leaderboard board={board} you={you} />
+        <Leaderboard board={board} segment={segment} you={you} />
       </main>
 
       <div className={`toast ${toast ? 'show' : ''}`}>{toast}</div>
@@ -160,14 +173,17 @@ function Stage({ state, result, skewRef, youVoted, responses, onVote, notify }) 
 
 function Join({ onJoin, notify }) {
   const [value, setValue] = useState('');
+  const [phone, setPhone] = useState('');
   const [busy, setBusy] = useState(false);
 
   async function go() {
     const n = value.trim();
     if (!n) return notify('Enter a name');
+    const digits = phone.replace(/\D/g, '');
+    if (digits.length !== 10) return notify('Enter a valid 10-digit phone number');
     setBusy(true);
     try {
-      await onJoin(n);
+      await onJoin(n, digits);
     } catch (e) {
       setBusy(false);
       notify(e.message);
@@ -181,8 +197,8 @@ function Join({ onJoin, notify }) {
       </div>
       <h1>Pick your favourites</h1>
       <p>
-        Enter a display name to play. Each question runs on a timer, pick the popular answers to
-        score points.
+        Enter your name and phone to play. Each question runs on a timer — pick the popular answers
+        to score points.
       </p>
       <input
         className="input"
@@ -193,7 +209,21 @@ function Join({ onJoin, notify }) {
         onKeyDown={(e) => e.key === 'Enter' && go()}
         autoFocus
       />
-      <button className="btn full" disabled={busy} onClick={go}>
+      <input
+        className="input"
+        type="tel"
+        inputMode="numeric"
+        placeholder="10-digit phone number"
+        maxLength={15}
+        value={phone}
+        onChange={(e) => setPhone(e.target.value)}
+        onKeyDown={(e) => e.key === 'Enter' && go()}
+        style={{ marginTop: 10 }}
+      />
+      <p className="hint" style={{ margin: '6px 0 0' }}>
+        Only used to contact prize winners — enter a correct number to claim rewards.
+      </p>
+      <button className="btn full" disabled={busy} onClick={go} style={{ marginTop: 12 }}>
         {busy ? <span className="spinner" /> : null}
         {busy ? 'Joining…' : 'Enter'}
         {!busy && <Icon name="arrowRight" />}

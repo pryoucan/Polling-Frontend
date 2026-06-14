@@ -11,7 +11,8 @@ import {
   adminReset,
   adminReseed,
   adminDownloadResults,
-  fetchLeaderboard,
+  adminLeaderboard,
+  adminDownloadStandings,
 } from './api.js';
 import { useSse } from './useSse.js';
 import { Icon } from './components/Icon.jsx';
@@ -87,6 +88,8 @@ function liveOptions(state, tally, result, phase) {
   return { total, opts };
 }
 
+const MEDALS = ['🥇', '🥈', '🥉'];
+
 const PHASE_LABEL = {
   pending: 'Idle · standby',
   lobby: 'Lobby — ready to begin',
@@ -105,6 +108,8 @@ export default function Admin() {
   const [busy, setBusy] = useState(false);
   const [seedCount, setSeedCount] = useState(100);
   const [board, setBoard] = useState([]);
+  const [segBoard, setSegBoard] = useState(null); // current round leaderboard { index, from, to, leaderboard }
+  const [startArmed, setStartArmed] = useState(false); // confirm gate for a destructive Start
 
   // Live feed (same public SSE stream participants use): current question,
   // per-option counts, and frozen results.
@@ -121,7 +126,13 @@ export default function Admin() {
   // light poll keeps it fresh without extra wiring).
   useEffect(() => {
     if (!authed) return undefined;
-    const tick = () => fetchLeaderboard(20).then((r) => setBoard(r.leaderboard || [])).catch(() => {});
+    const tick = () =>
+      adminLeaderboard() // host endpoint — includes full phone numbers
+        .then((r) => {
+          setBoard(r.leaderboard || []);
+          setSegBoard(r.segment || null);
+        })
+        .catch(() => {});
     tick();
     const id = setInterval(tick, 2500);
     return () => clearInterval(id);
@@ -291,13 +302,44 @@ export default function Admin() {
           <div className="card">
             <div className="eyebrow">Run control</div>
             <div className="toolbar">
-              <button className="btn btn-lg" disabled={busy} onClick={() => run(primary.toast, primary.fn)}>
-                {busy ? <span className="spinner" /> : <Icon name={primary.icon} />} {primary.text}
-              </button>
-              {isLive && (
-                <button className="btn ghost" disabled={busy} onClick={() => run('Poll restarted', adminStart)}>
-                  <Icon name="reset" /> Restart
+              {/* A Start/Restart that would erase existing scores must be confirmed.
+                  A fresh start (no scores yet) stays a clean one-click. */}
+              {primary.fn === adminStart && board.length > 0 ? (
+                startArmed ? (
+                  <span className="confirm-pair">
+                    <button
+                      className="btn btn-lg danger"
+                      disabled={busy}
+                      onClick={() => {
+                        setStartArmed(false);
+                        run(primary.toast, primary.fn);
+                      }}
+                    >
+                      <Icon name="check" /> {primary.text} — clears scores
+                    </button>
+                    <button className="btn ghost sm" disabled={busy} onClick={() => setStartArmed(false)}>
+                      Cancel
+                    </button>
+                  </span>
+                ) : (
+                  <button className="btn btn-lg" disabled={busy} onClick={() => setStartArmed(true)}>
+                    <Icon name={primary.icon} /> {primary.text}
+                  </button>
+                )
+              ) : (
+                <button className="btn btn-lg" disabled={busy} onClick={() => run(primary.toast, primary.fn)}>
+                  {busy ? <span className="spinner" /> : <Icon name={primary.icon} />} {primary.text}
                 </button>
+              )}
+              {isLive && (
+                <ConfirmButton
+                  icon="reset"
+                  label="Restart"
+                  confirmLabel="Restart — clears scores"
+                  kind="caution"
+                  disabled={busy}
+                  onConfirm={() => run('Poll restarted', adminStart)}
+                />
               )}
               {isLive && (
                 <ConfirmButton
@@ -317,22 +359,28 @@ export default function Admin() {
             )}
           </div>
 
-          {/* Live results for the current question */}
+          {/* Per-question results — a clear ranked Top 10 the host can read out */}
           {showLive && (
             <div className="card">
               <div className="eyebrow">
-                {phase === 'results' ? 'Final tally' : 'Live votes'} · Question {(state.question.index ?? 0) + 1}
+                {phase === 'results' ? 'Top answers — final' : 'Top answers — live'} · Question{' '}
+                {(state.question.index ?? 0) + 1}
               </div>
               <div className="qprompt" style={{ fontSize: 20 }}>
                 {state.question.prompt}
               </div>
               <p className="hint">
-                {liveTotal} response{liveTotal === 1 ? '' : 's'} so far
+                {liveTotal} response{liveTotal === 1 ? '' : 's'} · showing top {Math.min(10, liveOpts.length)} of{' '}
+                {liveOpts.length}
               </p>
-              <div className="options">
-                {liveOpts.map((o, i) => (
+              {/* Single column + rank badges so it reads as a clear 1→10 ranking. */}
+              <div className="options" style={{ gridTemplateColumns: '1fr' }}>
+                {liveOpts.slice(0, 10).map((o, i) => (
                   <div key={i} className={`option ${o.win ? 'win' : ''}`.trim()}>
                     <span className="bar" style={{ width: `${o.pct}%` }} />
+                    <span className="medal" style={{ minWidth: 26, marginRight: 4, fontWeight: 700 }}>
+                      {i < 3 ? MEDALS[i] : `#${i + 1}`}
+                    </span>
                     <span className="lbl">{o.label}</span>
                     <span className="count">
                       {o.votes} · {Math.round(o.pct)}%
@@ -346,13 +394,16 @@ export default function Admin() {
           {/* Export */}
           <div className="card">
             <div className="eyebrow">Export results</div>
-            <p className="hint">Top-10 options for every question that has closed.</p>
+            <p className="hint">Per-question top-10 options, or full standings with phone numbers for prizes.</p>
             <div className="toolbar">
               <button className="btn ghost" disabled={busy} onClick={() => run('Downloaded CSV', () => adminDownloadResults('csv', 10))}>
-                <Icon name="download" /> CSV
+                <Icon name="download" /> Answers CSV
               </button>
               <button className="btn ghost" disabled={busy} onClick={() => run('Downloaded JSON', () => adminDownloadResults('json', 10))}>
-                <Icon name="download" /> JSON
+                <Icon name="download" /> Answers JSON
+              </button>
+              <button className="btn ghost" disabled={busy} onClick={() => run('Downloaded standings', adminDownloadStandings)}>
+                <Icon name="download" /> Standings + phones
               </button>
             </div>
           </div>
@@ -395,24 +446,53 @@ export default function Admin() {
           <div className="card">
             <div className="eyebrow">How it works</div>
             <p className="hint" style={{ marginBottom: 0 }}>
-              <b>Start</b> clears the previous run's scores and opens the lobby. <b>Begin</b> fires the first
-              question; each question runs on its own timer, then holds on its results until you press{' '}
-              <b>Next question</b> (the poll never auto-advances). During voting the primary button becomes{' '}
-              <b>Pause</b>/<b>Resume</b>. <b>Stop</b> returns everyone to standby. The <b>Danger zone</b> wipes
+              <b>Begin</b> fires the first question; each runs on its own timer, then holds on its results
+              until you press <b>Next question</b> (the poll never auto-advances). To take a break and
+              continue the <i>same</i> run, use <b>Pause</b>/<b>Resume</b> during a question — your votes and
+              scores are kept. <b>Start</b> and <b>Restart</b> clear the previous run's scores (the app asks
+              you to confirm first). <b>Stop</b> ends the run — the data stays in the DB for export, but
+              resuming afterward requires <b>Start</b>, which clears. The <b>Danger zone</b> wipes
               votes/scores or replaces all questions.
             </p>
           </div>
         </section>
 
-        {/* Live leaderboard */}
+        {/* Live leaderboards — current round + overall */}
         <aside className="board">
-          <h2>Live leaderboard</h2>
+          {segBoard && (
+            <>
+              <h2>This round · Q{segBoard.from + 1}–{segBoard.to + 1}</h2>
+              <ol className="board-list">
+                {(!segBoard.leaderboard || segBoard.leaderboard.length === 0) && (
+                  <li className="board-empty">No scores yet this round.</li>
+                )}
+                {segBoard.leaderboard?.map((row) => (
+                  <li key={row.id} className={row.rank === 1 ? 'r1' : ''}>
+                    <span className="pos">#{row.rank}</span>
+                    <span className="nm">
+                      {row.name}
+                      {row.phone ? (
+                        <span style={{ color: 'var(--muted)', fontSize: 12, marginLeft: 6 }}>{row.phone}</span>
+                      ) : null}
+                    </span>
+                    <span className="pts">{row.points}</span>
+                  </li>
+                ))}
+              </ol>
+            </>
+          )}
+          <h2 style={segBoard ? { marginTop: 18 } : undefined}>Overall leaderboard</h2>
           <ol className="board-list">
             {board.length === 0 && <li className="board-empty">No scores yet.</li>}
             {board.map((row) => (
               <li key={row.id} className={row.rank === 1 ? 'r1' : ''}>
                 <span className="pos">#{row.rank}</span>
-                <span className="nm">{row.name}</span>
+                <span className="nm">
+                  {row.name}
+                  {row.phone ? (
+                    <span style={{ color: 'var(--muted)', fontSize: 12, marginLeft: 6 }}>{row.phone}</span>
+                  ) : null}
+                </span>
                 <span className="pts">{row.points}</span>
               </li>
             ))}

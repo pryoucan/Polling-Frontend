@@ -37,11 +37,11 @@ export function clearSession() {
 }
 
 // Anonymous join — stores the returned token for subsequent authed calls.
-export async function join(name) {
+export async function join(name, phone) {
   const body = await req('/api/join', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, phone }),
   });
   localStorage.setItem(TOKEN_KEY, body.token);
   localStorage.setItem(NAME_KEY, body.name);
@@ -94,6 +94,26 @@ export const adminNext = () => adminReq('/next', { method: 'POST' });
 export const adminReset = () => adminReq('/reset', { method: 'POST' });
 export const adminReseed = (count) =>
   adminReq('/reseed', { method: 'POST', body: JSON.stringify({ count }) });
+
+// Host-only leaderboards WITH full phone numbers (overall + current segment).
+export const adminLeaderboard = () => adminReq('/leaderboard');
+
+// Download the full standings (name, phone, points) as CSV for reward processing.
+export async function adminDownloadStandings() {
+  const res = await fetch(`${API_BASE}/api/admin/standings`, {
+    headers: { 'x-admin-token': getAdminToken() },
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'download failed');
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'poll-standings.csv';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
 
 // Download top-N results (CSV or JSON) as a file. Uses the admin token header,
 // so we fetch a blob and trigger the download client-side.
